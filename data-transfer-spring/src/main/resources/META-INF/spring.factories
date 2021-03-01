@@ -1,0 +1,2 @@
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+  study.wyy.datatransfer.spring.config.DataTransferConfiguration

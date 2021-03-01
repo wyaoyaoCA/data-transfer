@@ -1,0 +1,11 @@
+data:
+  transfer:
+    file:
+      activate: local
+      # file-base-dir: /usr/local
+    task-storage: redis
+
+spring:
+  redis:
+    host: localhost
+    port: 6379
