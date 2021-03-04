@@ -4,12 +4,18 @@ import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.util.FileCopyUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import study.wyy.datatransfer.api.exception.DataTransferException;
 import study.wyy.datatransfer.api.model.DataTransferTask;
 import study.wyy.datatransfer.api.request.DataTransferCreateRequest;
 import study.wyy.datatransfer.api.service.TaskStorageService;
+import study.wyy.datatransfer.spring.spi.FileManager;
 
+import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,11 +36,13 @@ public class DataTransferRestController {
     private final DataTaskTrigger dataTaskTrigger;
     private final TaskStorageService taskStorageService;
     private final File temp;
+    private final FileManager fileManager;
 
     @Autowired
-    public DataTransferRestController(DataTaskTrigger dataTaskTrigger, TaskStorageService taskStorageService) throws IOException {
+    public DataTransferRestController(DataTaskTrigger dataTaskTrigger, TaskStorageService taskStorageService, FileManager fileManager) throws IOException {
         this.dataTaskTrigger = dataTaskTrigger;
         this.taskStorageService = taskStorageService;
+        this.fileManager = fileManager;
         // 上传文件的临时保存目录
         temp = Files.createTempDirectory("data_transfer_import_temp").toFile();
     }
@@ -90,5 +98,34 @@ public class DataTransferRestController {
             }
         }
         return new File(absFilePath);
+    }
+
+    @GetMapping(value = "/downloadError/{id}")
+    @ApiOperation("错误文件下载")
+    public void downloadError(@PathVariable Long id, HttpServletResponse response) throws Exception {
+        DataTransferTask task = taskStorageService.findById(id);
+        if (task == null || StringUtils.isBlank(task.getErrorRecordsFilePath())) {
+            throw new DataTransferException("file.not.exist");
+        }
+        try {
+            //获取spring提供的文件系统资源对象
+            Resource resource = new FileSystemResource(task.getErrorRecordsFilePath());
+            //使用spring的工具类把resource中的文件转换成一个字节数组
+            byte[] images = FileCopyUtils.copyToByteArray(resource.getFile());
+            //使用response设置响应消息头
+            response.setContentType("application/octet-stream");
+            response.setCharacterEncoding("utf-8");
+            // 获取文件名字
+            String fileName = Paths.get(task.getErrorRecordsFilePath()).getFileName().toString();
+            response.setHeader("Content-Disposition", "attachment;filename=" + fileName);
+            //输出字节数组
+            response.getOutputStream().write(images, 0, images.length);
+            // 删除文件和删除redis中的结果
+            fileManager.deleteFile(task.getErrorRecordsFilePath());
+            taskStorageService.deleteById(id);
+        } catch (Exception e) {
+            log.error("download file error cause by {}", e.getMessage(), e);
+            throw new DataTransferException("file.download.fail");
+        }
     }
 }
